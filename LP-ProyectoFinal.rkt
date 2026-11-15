@@ -142,3 +142,102 @@
   ))
 
 
+;; ============================================================
+;; Construcción de los datatypes y del parser a partir de la
+;; especificación léxica y la gramática
+;; ============================================================
+
+;; Crea automáticamente los datatypes del árbol de sintaxis
+;; (programa, expresion, primitiva-binaria, primitiva-unaria).
+(sllgen:make-define-datatypes lexica gramatica)
+
+;; Muestra los datatypes que sllgen generó a partir de la gramática.
+;; Se usa para revisar cómo quedó el árbol de sintaxis.
+(define show-the-datatypes
+  (lambda () (sllgen:list-define-datatypes lexica gramatica))
+)
+
+;; Recibe un texto, lo escanea y lo parsea, y retorna su árbol de sintaxis.
+;; Se usa para probar programas escritos como string.
+(define scan&parse
+  (sllgen:make-string-parser lexica gramatica)
+)
+
+;; Recibe un texto y retorna solo la lista de tokens (sin parsear).
+;; Se usa para revisar la especificación léxica.
+(define just-scan
+  (sllgen:make-string-scanner lexica gramatica)
+)
+
+
+
+;; Recibe un booleano de Racket (#t o #f) y lo convierte en 1 o 0.
+;; Se usa para que las comparaciones del lenguaje retornen 1 o 0.
+(define boolean-out
+  (lambda (boolean-exp)
+    (if boolean-exp #t #f)))
+
+(define aplicar-primitiva-binaria
+  (lambda (prim args)
+    (cases primitiva-binaria prim
+      (primitiva-suma () (+ (car args) (cadr args)))
+      (primitiva-resta () (- (car args) (cadr args)))
+      (primitiva-multi () (* (car args) (cadr args)))
+      (primitiva-div () (if (= (cadr args) 0) (eopl:error 'aplicar-primitiva-binaria "division by zero") (/ (car args) (cadr args))))
+      (primitiva-comparador-igual () (boolean-out (equal? (car args) (cadr args))))
+      (primitiva-diferente () (boolean-out (not (equal? (car args) (cadr args)))))
+      (primitiva-mayor () (boolean-out (> (car args) (cadr args))))
+      (primitiva-menor () (boolean-out (< (car args) (cadr args))))
+      (primitiva-mayor-igual () (boolean-out (>= (car args) (cadr args))))
+      (primitiva-menor-igual () (boolean-out (<= (car args) (cadr args))))
+      (primitiva-asignacion () (eopl:error 'aplicar-primitiva-binaria "El operador -> solo puede usarse justo despues de una variable"))
+      )
+    )
+  )
+
+ (define aplicar-tipo
+  (lambda (t)
+    (cases tipo t
+      (tipo-int () "int")
+      (tipo-float () "float")
+      (tipo-string () "string")
+      (tipo-bool () "bool")
+      (tipo-void () "void")
+      (tipo-list (tipo-elem) (string-append "list<" (aplicar-tipo tipo-elem) ">"))
+      (tipo-vector (tipo-elem) (string-append "vector<" (aplicar-tipo tipo-elem) ">"))
+      (tipo-dict (tipo-clave tipo-valor) (string-append "dict<" (aplicar-tipo tipo-clave) "," (aplicar-tipo tipo-valor) ">")))
+    )
+   )
+      
+ (define aplicar-operando
+  (lambda (o env)
+    (cases operando o
+      (numero-lit (datum) datum)
+      (texto-lit (cadena)(substring cadena 1 (- (string-length cadena) 1)))
+      (true-lit () #t)
+      (false-lit () #f)
+      (id-exp (nombre sufijo)
+              (cases sufijo-id sufijo
+                (var-sufijo () (eopl:error 'aplicar-operando "ambiente aun no implementado: ~s" nombre))
+                (app-sufijo (args) (eopl:error 'aplicar-operando "aun no implementado"))
+               ))
+      (grupo-exp (exp) (evaluar-expresion exp env) )
+      (bloque-exp (exp) (evaluar-expresion exp env) )
+      (locales-exp (exp) (evaluar-expresion exp env) )
+    )
+   )
+  )
+
+;; ============================================================
+;; Evaluación
+;; ============================================================
+
+;; evaluar-expresion : <expresion> x ambiente -> valor
+
+(define evaluar-expresion
+  (lambda (exp env)
+    (cases expresion exp
+      
+
+  )))
+
