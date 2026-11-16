@@ -229,6 +229,93 @@
   )
 
 ;; ============================================================
+;; Ambiente
+;; ============================================================
+;; Datatype para representar una referencia a una celda en memoria
+(define-datatype referencia referencia?
+  (una-ref (pos integer?)
+           (vec vector?)))
+
+;; Extrae el valor actual almacenado en la referencia
+(define leer-ref
+  (lambda (ref)
+    (cases referencia ref
+      (una-ref (pos vec) (car (vector-ref vec pos)))
+      )
+    )
+  )
+
+;; Modifica el valor de la referencia si no es constante
+(define cambiar-ref!
+  (lambda (ref nuevo-val)
+    (cases referencia ref
+      (una-ref (pos vec)
+        (let ((celda (vector-ref vec pos)))
+          (if (cdr celda)
+              (eopl:error 'cambiar-ref! "No se puede modificar una constante")
+              (begin (vector-set! vec pos (cons nuevo-val #f)) nuevo-val))
+          )
+        )
+      )
+    )
+  )
+
+;; Datatype del ambiente
+(define-datatype ambiente ambiente?
+  (ambiente-vacio-reg)
+  (ambiente-extendido-reg
+   (syms (list-of symbol?))
+   (vec vector?)
+   (env ambiente?)))
+
+;; Crea un ambiente vacío
+(define ambiente-vacio
+  (lambda ()
+    (ambiente-vacio-reg)
+    )
+  )
+
+;; Extiende un ambiente con nuevos símbolos y sus celdas (valor . es-constante?)
+(define extender-ambiente
+  (lambda (syms celdas env)
+    (ambiente-extendido-reg syms (list->vector celdas) env)
+    )
+  )
+
+;; Busca la posición de un símbolo en una lista (retorna índice o #f)
+(define buscar-posicion
+  (lambda (sym syms)
+    (let buscar ((ls syms) (pos 0))
+      (cond
+        ((null? ls) #f)
+        ((eqv? sym (car ls)) pos)
+        (else (buscar (cdr ls) (+ pos 1))))
+      )
+    )
+  )
+
+;; Busca un símbolo y retorna su referencia (para leer o asignar)
+(define aplicar-ambiente-ref
+  (lambda (env sym)
+    (cases ambiente env
+      (ambiente-vacio-reg ()(eopl:error 'aplicar-ambiente-ref "Variable no definida: ~s" sym))
+      (ambiente-extendido-reg (syms vec env-anterior)
+        (let ((pos (buscar-posicion sym syms)))
+          (if (number? pos)
+              (una-ref pos vec)
+              (aplicar-ambiente-ref env-anterior sym))
+          )
+        )
+      )
+    )
+  )
+
+;; Busca un símbolo y retorna directamente su valor
+(define aplicar-ambiente
+  (lambda (env sym)
+    (leer-ref (aplicar-ambiente-ref env sym))))
+
+;; ============================================================
 ;; Evaluación
 ;; ============================================================
 
@@ -238,45 +325,67 @@
   (lambda (pgm)
     (cases programa pgm
       (un-programa (decls exp)
-         (if (null? decls) (evaluar-expresion exp '()) (eopl:error 'evaluar-programa "aun no se ha implementado")))
-        )))
+         (if (null? decls)
+             (evaluar-expresion exp '())
+             (eopl:error 'evaluar-programa "aun no se ha implementado")
+             )
+         )
+      )
+    )
+  )
 
 
 (define evaluar-expresion
   (lambda (exp env)
     (cases expresion exp
-        (operacion-exp (primer prims resto)
-                       (if (null? prims)
-                           (aplicar-operando primer env)
-                           (let ((res (aplicar-primitiva-binaria (car prims) 
-                                      (list (aplicar-operando primer env) 
-                                            (aplicar-operando (car resto) env)))))
-  (evaluar-expresion 
-    (operacion-exp (if (number? res) (numero-lit res) (if res (true-lit) (false-lit)))
-                   (cdr prims) 
-                   (cdr resto))
-    env))
+      (operacion-exp (primer prims resto)
+        (if (null? prims)
+            (aplicar-operando primer env)
+            (let ((res (aplicar-primitiva-binaria
+                        (car prims)
+                        (list (aplicar-operando primer env)
+                              (aplicar-operando (car resto) env)))))
+              (evaluar-expresion
+                (operacion-exp
+                  (if (number? res)
+                      (numero-lit res)
+                      (if res
+                          (true-lit)
+                          (false-lit)
+                       )
+                   )
+                  (cdr prims)(cdr resto))
+                env)
+              )
+            )
         )
-
-  ))))
+      )
+    )
+  )
 
 (define evaluar-sentencia
   (lambda (sent env)
     (cases sentencia sent
-      (una-sentencia (exp)
-            (evaluar-expresion exp env))
-        )))
+      (una-sentencia (exp)(evaluar-expresion exp env))
+      )
+    )
+  )
 
 (define evaluar-bloque
   (lambda (block env)
     (cases bloque block
       (un-bloque (sentencia lista-sentencias)
-                 (if (null? lista-sentencias)
-                     (evaluar-sentencia sentencia env)
-                     (begin
-                       (evaluar-sentencia sentencia env)
-                       (evaluar-bloque (un-bloque (car lista-sentencias)(cdr lista-sentencias)) env)
-        ))))))
+        (if (null? lista-sentencias)
+            (evaluar-sentencia sentencia env)
+            (begin
+              (evaluar-sentencia sentencia env)
+              (evaluar-bloque (un-bloque (car lista-sentencias) (cdr lista-sentencias)) env)
+             )
+          )
+        )
+      )
+    )
+  )
 
 (define probar
   (lambda (texto)
