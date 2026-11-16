@@ -1,4 +1,16 @@
 #lang eopl
+
+;; Integrantes:
+;; ANA SOFIA CANTILLO BOLAÑOS       202610112
+;; SARA JULISSA HERNANDEZ HERNANDEZ 202610102
+;; HECTOR DANIEL CARABALI VALENCIA  202410213
+;; SANTIAGO TORRES VANEGAS          ?????????   
+
+;; Enlace al repositorio:
+;; https://github.com/DanielValencia10/Proyecto-Final.git
+
+
+
 ;Especificación Léxica
 
 (define lexica
@@ -218,15 +230,16 @@
       (false-lit () #f)
       (id-exp (nombre sufijo)
               (cases sufijo-id sufijo
-                (var-sufijo () (eopl:error 'aplicar-operando "ambiente aun no implementado: ~s" nombre))
+                (var-sufijo () (aplicar-ambiente env nombre))
                 (app-sufijo (args) (eopl:error 'aplicar-operando "aun no implementado"))
                ))
       (grupo-exp (exp) (evaluar-expresion exp env) )
       (bloque-exp (exp) (evaluar-bloque exp env) )
-      (locales-exp (exp) (evaluar-expresion exp env) )
+      (locales-exp (exp) (evaluar-locales exp env))
+      )
     )
    )
-  )
+  
 
 ;; ============================================================
 ;; Ambiente
@@ -313,7 +326,9 @@
 ;; Busca un símbolo y retorna directamente su valor
 (define aplicar-ambiente
   (lambda (env sym)
-    (leer-ref (aplicar-ambiente-ref env sym))))
+    (leer-ref (aplicar-ambiente-ref env sym))
+    )
+  )
 
 ;; ============================================================
 ;; Evaluación
@@ -325,10 +340,7 @@
   (lambda (pgm)
     (cases programa pgm
       (un-programa (decls exp)
-         (if (null? decls)
-             (evaluar-expresion exp '())
-             (eopl:error 'evaluar-programa "aun no se ha implementado")
-             )
+        (evaluar-expresion exp (evaluar-declaraciones decls (ambiente-vacio)))
          )
       )
     )
@@ -339,9 +351,13 @@
   (lambda (exp env)
     (cases expresion exp
       (operacion-exp (primer prims resto)
-        (if (null? prims)
-            (aplicar-operando primer env)
-            (let ((res (aplicar-primitiva-binaria
+        (cond
+          ((null? prims)
+           (aplicar-operando primer env))
+          ((equal? (car prims) (primitiva-asignacion))
+           (evaluar-asignacion primer prims resto env))
+          (else
+           (let ((res (aplicar-primitiva-binaria
                         (car prims)
                         (list (aplicar-operando primer env)
                               (aplicar-operando (car resto) env)))))
@@ -358,6 +374,7 @@
                 env)
               )
             )
+          )
         )
       )
     )
@@ -387,9 +404,73 @@
     )
   )
 
+(define evaluar-locales
+  (lambda (local env)
+    (cases locales local
+      (variableLocal-exp (declaracion lista-declaraciones sentencia lista-sentencias)
+        (let ((nuevo-env (evaluar-declaraciones (cons declaracion lista-declaraciones) env)))
+          (evaluar-bloque (un-bloque sentencia lista-sentencias) nuevo-env)
+          )
+        )
+      )
+    )
+  )
+
+(define evaluar-declaraciones
+  (lambda (decls env)
+    (if (null? decls)
+        env
+        (cases declaracion (car decls)
+          (var-decl (tipo id exp)
+            (let ((val (evaluar-expresion exp env)))
+              (evaluar-declaraciones (cdr decls)
+                (extender-ambiente (list id) (list (cons val #f)) env)
+                )
+              )
+            )
+          (const-decl (tipo id exp)
+             (let ((val (evaluar-expresion exp env)))
+              (evaluar-declaraciones (cdr decls)
+                (extender-ambiente (list id) (list (cons val #t)) env)
+                )
+              )
+            )
+          (proc-decl (id exp)
+            (evaluar-declaraciones (cdr decls)
+              (extender-ambiente (list id) (list (cons 'proc-pendiente #t)) env)
+              )
+            )
+          )
+        )
+    )
+  )
+
+
+(define evaluar-asignacion
+  (lambda (primer prims resto env)
+    (cases operando primer
+      (id-exp (nombre sufijo)
+        (cases sufijo-id sufijo
+          (var-sufijo ()
+            (let ((valor-nuevo (evaluar-expresion
+                                 (operacion-exp (car resto) (cdr prims) (cdr resto))
+                                 env)))
+              (cambiar-ref! (aplicar-ambiente-ref env nombre) valor-nuevo)
+              )
+            )
+          (else (eopl:error 'evaluar-asignacion "No se puede asignar a una llamada de funcion"))
+          )
+        )
+      (else (eopl:error 'evaluar-asignacion "El lado izquierdo de -> debe ser una variable"))
+      )
+    )
+  )
+
 (define probar
   (lambda (texto)
-    (evaluar-programa (scan&parse texto))))
+    (evaluar-programa (scan&parse texto))
+    )
+  )
 
 
 
