@@ -298,7 +298,8 @@
             (let ((vals (map (lambda (a) (evaluar-expresion a env)) args)))
               (if (es-primitiva-coleccion? nombre)
                   (aplicar-primitiva-coleccion nombre vals)
-                  (eopl:error 'aplicar-operando "Procedimientos de usuario aun no implementados: ~s" nombre)
+                  ;; invocación de procedimiento de usuario: paso por valor
+                  (aplicar-procedimiento (aplicar-ambiente env nombre) vals nombre)
                   )
               )
             )
@@ -565,8 +566,18 @@
               )
             )
           (proc-decl (id exp)
-            (evaluar-declaraciones (cdr decls)
-              (extender-ambiente (list id) (list (cons 'proc-pendiente #t)) env)
+            ;; El nombre se agrega al ambiente ANTES de evaluar el lambda, así la
+            ;; clausura captura un ambiente que ya contiene al procedimiento (recursión).
+            (let* ((nuevo-env (extender-ambiente (list id)
+                                                 (list (cons 'proc-pendiente #t))
+                                                 env))
+                   (val (evaluar-expresion exp nuevo-env)))
+              (if (procVal? val)
+                  (begin
+                    (inicializar-ref! (aplicar-ambiente-ref nuevo-env id) val)
+                    (evaluar-declaraciones (cdr decls) nuevo-env))
+                  (eopl:error 'proc-decl "~s debe ser un procedimiento (lambda)" id)
+                  )
               )
             )
           )
@@ -767,9 +778,8 @@
 
 ;; ============================================================
 ;; Extensión del evaluador
-;; Para la invocación f(args) y proc-decl no se modifican las definiciones de
-;; arriba: se guarda la versión original y se la extiende con set!; todo lo
-;; demás se delega al original.
+;; (la invocación f(args) y proc-decl quedaron integradas directamente en
+;; aplicar-operando y evaluar-declaraciones)
 ;; ============================================================
 
 ;; evaluar-construccion : <construccion> x ambiente -> valor
@@ -788,55 +798,6 @@
       (for-exp (inicio condicion paso cuerpo-for)
                (evaluar-for inicio condicion paso cuerpo-for env))
       )
-    )
-  )
-
-(define aplicar-operando-base aplicar-operando)
-
-(set! aplicar-operando
-  (lambda (o env)
-    (cases operando o
-      ;; invocación f(args): lo evalúa aplicar-procedimiento
-      (id-exp (nombre sufijo)
-        (cases sufijo-id sufijo
-          (app-sufijo (args)
-            (aplicar-procedimiento
-              (aplicar-ambiente env nombre)
-              (map (lambda (arg) (evaluar-expresion arg env)) args)
-              nombre))
-          (else (aplicar-operando-base o env))
-          )
-        )
-      (else (aplicar-operando-base o env))
-      )
-    )
-  )
-
-(define evaluar-declaraciones-base evaluar-declaraciones)
-
-(set! evaluar-declaraciones
-  (lambda (decls env)
-    (if (null? decls)
-        env
-        (cases declaracion (car decls)
-          (proc-decl (id exp)
-            ;; El nombre se agrega al ambiente ANTES de evaluar el lambda, así la
-            ;; clausura captura un ambiente que ya contiene al procedimiento (recursión).
-            (let* ((nuevo-env (extender-ambiente (list id)
-                                                 (list (cons 'proc-pendiente #t))
-                                                 env))
-                   (val (evaluar-expresion exp nuevo-env)))
-              (if (procVal? val)
-                  (begin
-                    (inicializar-ref! (aplicar-ambiente-ref nuevo-env id) val)
-                    (evaluar-declaraciones (cdr decls) nuevo-env))
-                  (eopl:error 'proc-decl "~s debe ser un procedimiento (lambda)" id)
-                  )
-              )
-            )
-          (else (evaluar-declaraciones-base decls env))
-          )
-        )
     )
   )
 
