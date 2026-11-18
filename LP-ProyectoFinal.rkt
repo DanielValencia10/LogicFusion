@@ -90,6 +90,20 @@
     (sufijo-id () var-sufijo)
     (sufijo-id ("(" (separated-list expresion ",") ")") app-sufijo)
 
+    ;<operando> ::= empty
+    (operando ("empty") empty-lit)
+
+    ;<operando> ::= [ { <expresion> }*(,) ]
+    (operando ("[" (separated-list expresion ",") "]") lista-lit)
+
+    ;<operando> ::= #[ { <expresion> }*(,) ]
+    (operando ("#[" (separated-list expresion ",") "]") vector-lit)
+
+    ;<operando> ::= { { <expresion> : <expresion> }*(,) }
+    (operando ("{" (separated-list par-dict ",") "}") dict-lit)
+
+    ;; Regla auxiliar para cada pareja clave : valor del diccionario
+    (par-dict (expresion ":" expresion) un-par)
     ;<operando> ::= ( <expresion> )
     ;               grupo-exp (exp)
     (operando ("(" expresion ")") grupo-exp)
@@ -278,19 +292,84 @@
       (true-lit () #t)
       (false-lit () #f)
       (id-exp (nombre sufijo)
-              (cases sufijo-id sufijo
-                (var-sufijo () (aplicar-ambiente env nombre))
-                (app-sufijo (args) (eopl:error 'aplicar-operando "aun no implementado"))
-               ))
+        (cases sufijo-id sufijo
+          (var-sufijo () (aplicar-ambiente env nombre))
+          (app-sufijo (args)
+            (let ((vals (map (lambda (a) (evaluar-expresion a env)) args)))
+              (if (es-primitiva-coleccion? nombre)
+                  (aplicar-primitiva-coleccion nombre vals)
+                  (eopl:error 'aplicar-operando "Procedimientos de usuario aun no implementados: ~s" nombre)
+                  )
+              )
+            )
+          )
+        )
       (grupo-exp (exp) (evaluar-expresion exp env) )
       (bloque-exp (exp) (evaluar-bloque exp env) )
       (locales-exp (exp) (evaluar-locales exp env))
       (construccion-exp (constr) (evaluar-construccion constr env))
+      (empty-lit () '())
+      (lista-lit (exp) (map (lambda (e) (evaluar-expresion e env)) exp))
+      (vector-lit (exps) (list->vector (map (lambda (e) (evaluar-expresion e env)) exps)))
+      (dict-lit (pares) (eopl:error 'aplicar-operando "Diccionarios pendientes Sara"))
       )
     )
    )
-  
 
+;; ============================================================
+;; Primitivas de listas
+;; ============================================================
+(define primitivas-colecciones
+  '(empty? head tail make-list append ref-list length list?))
+
+;; es-primitiva-sistema? : symbol -> boolean
+;; Decide por el nombre, no por el resultado: empty? y list? pueden dar #f.
+(define es-primitiva-coleccion?
+  (lambda (nombre)
+    (if (memq nombre primitivas-colecciones) #t #f)))
+
+;; exigir-argumentos : symbol x lista x entero -> 'ok
+(define exigir-argumentos
+  (lambda (nombre args n)
+    (if (not (= (length args) n))
+        (eopl:error nombre "Espera ~s argumento(s) y recibio ~s" n (length args))
+        'ok)))
+
+;; aplicar-primitiva-coleccion : symbol x (listof valor) -> valor
+;; Solo se llama cuando es-primitiva-sistema? es verdadero.
+(define aplicar-primitiva-coleccion
+  (lambda (nombre args)
+    (cond
+      ((eqv? nombre 'empty?)
+       (exigir-argumentos nombre args 1)
+       (eopl:error 'aplicar-primitiva-coleccion "empty? aun no implementado"))
+      ((eqv? nombre 'head)
+       (exigir-argumentos nombre args 1)
+       (eopl:error 'aplicar-primitiva-coleccion "head aun no implementado"))
+      ((eqv? nombre 'tail)
+       (exigir-argumentos nombre args 1)
+       (eopl:error 'aplicar-primitiva-coleccion "tail aun no implementado"))
+      ((eqv? nombre 'make-list)
+       (exigir-argumentos nombre args 2)
+       (eopl:error 'aplicar-primitiva-coleccion "make-list aun no implementado"))
+      ((eqv? nombre 'append)
+       (exigir-argumentos nombre args 2)
+       (eopl:error 'aplicar-primitiva-coleccion "append aun no implementado"))
+      ((eqv? nombre 'ref-list)
+       (exigir-argumentos nombre args 2)
+       (eopl:error 'aplicar-primitiva-coleccion "ref-list aun no implementado"))
+      ((eqv? nombre 'length)
+       (exigir-argumentos nombre args 1)
+       (eopl:error 'aplicar-primitiva-coleccion "length aun no implementado"))
+      ((eqv? nombre 'list?)
+       (exigir-argumentos nombre args 1)
+       (eopl:error 'aplicar-primitiva-coleccion "list? aun no implementado"))
+      (else
+       (eopl:error 'aplicar-primitiva-coleccion "~s no es una primitiva" nombre))
+      )
+    )
+  )
+  
 ;; ============================================================
 ;; Ambiente
 ;; ============================================================
