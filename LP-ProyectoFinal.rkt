@@ -336,35 +336,77 @@
         (eopl:error nombre "Espera ~s argumento(s) y recibio ~s" n (length args))
         'ok)))
 
+
+
+
+;; empty
+(define lista-vacia '())
+
+;; empty? : lista -> boolean
+(define lista-empty?
+  (lambda (lst) (null? lst)))
+
+;; head : lista -> valor   (error si la lista está vacía)
+(define lista-head
+  (lambda (lst)
+    (if (null? lst)
+        (eopl:error 'head "La lista esta vacia")
+        (car lst))))
+
+;;lista-tail : lista -> el resto de la lista
+(define lista-tail
+  (lambda (lst)
+    (if (null? lst)
+        (eopl:error 'tail "La lista esta vacia")
+        (cdr lst))))
+
+;;lista-make : elem x lista -> lista.
+(define lista-make
+  (lambda (elem lst) (cons elem lst)))
+
+;; lista-append : unión de dos listas
+(define lista-append
+  (lambda (lst1 lst2) (append lst1 lst2)))
+
+;; lista-ref : devuelve el elemento en la posición pos
+
+(define lista-ref
+  (lambda (lst pos)
+    (cond
+      ((or (< pos 0) (null? lst))
+       (eopl:error 'ref-list "Indice fuera de rango"))
+      ((= pos 0) (car lst))
+      (else (lista-ref (cdr lst) (- pos 1))))))
+
+;; lista-length : la cantidad de elementos
+(define lista-length
+  (lambda (lst) (length lst)))
+
+;; lista-es? : dice si un valor es una lista.
+(define lista-es?
+  (lambda (lst) (list? lst)))
+
 ;; aplicar-primitiva-coleccion : symbol x (listof valor) -> valor
-;; Solo se llama cuando es-primitiva-sistema? es verdadero.
+;; Solo se llama cuando es-primitiva-coleccion? es verdadero.
 (define aplicar-primitiva-coleccion
   (lambda (nombre args)
     (cond
       ((eqv? nombre 'empty?)
-       (exigir-argumentos nombre args 1)
-       (eopl:error 'aplicar-primitiva-coleccion "empty? aun no implementado"))
+       (exigir-argumentos nombre args 1) (lista-empty? (car args)))
       ((eqv? nombre 'head)
-       (exigir-argumentos nombre args 1)
-       (eopl:error 'aplicar-primitiva-coleccion "head aun no implementado"))
+       (exigir-argumentos nombre args 1) (lista-head (car args)))
       ((eqv? nombre 'tail)
-       (exigir-argumentos nombre args 1)
-       (eopl:error 'aplicar-primitiva-coleccion "tail aun no implementado"))
+       (exigir-argumentos nombre args 1) (lista-tail (car args)))
       ((eqv? nombre 'make-list)
-       (exigir-argumentos nombre args 2)
-       (eopl:error 'aplicar-primitiva-coleccion "make-list aun no implementado"))
+       (exigir-argumentos nombre args 2) (lista-make (car args) (cadr args)))
       ((eqv? nombre 'append)
-       (exigir-argumentos nombre args 2)
-       (eopl:error 'aplicar-primitiva-coleccion "append aun no implementado"))
+       (exigir-argumentos nombre args 2) (lista-append (car args) (cadr args)))
       ((eqv? nombre 'ref-list)
-       (exigir-argumentos nombre args 2)
-       (eopl:error 'aplicar-primitiva-coleccion "ref-list aun no implementado"))
+       (exigir-argumentos nombre args 2) (lista-ref (car args) (cadr args)))
       ((eqv? nombre 'length)
-       (exigir-argumentos nombre args 1)
-       (eopl:error 'aplicar-primitiva-coleccion "length aun no implementado"))
+       (exigir-argumentos nombre args 1) (lista-length (car args)))
       ((eqv? nombre 'list?)
-       (exigir-argumentos nombre args 1)
-       (eopl:error 'aplicar-primitiva-coleccion "list? aun no implementado"))
+       (exigir-argumentos nombre args 1) (lista-es? (car args)))
       (else
        (eopl:error 'aplicar-primitiva-coleccion "~s no es una primitiva" nombre))
       )
