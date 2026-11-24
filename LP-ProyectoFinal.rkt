@@ -311,7 +311,7 @@
       (construccion-exp (constr) (evaluar-construccion constr env))
       (empty-lit () '())
       (lista-lit (exp) (map (lambda (e) (evaluar-expresion e env)) exp))
-      (vector-lit (exps) (list->vector (map (lambda (e) (evaluar-expresion e env)) exps)))
+      (vector-lit (exps) (vec-nuevo (list->vector (map (lambda (e) (evaluar-expresion e env)) exps))))
       (dict-lit (pares) (eopl:error 'aplicar-operando "Diccionarios pendientes Sara"))
       )
     )
@@ -321,7 +321,7 @@
 ;; Primitivas de listas
 ;; ============================================================
 (define primitivas-colecciones
-  '(empty? head tail make-list append ref-list length list?))
+  '(empty? head tail make-list append ref-list length list? vector? make-vector ref-vector set-vector))
 
 ;; es-primitiva-sistema? : symbol -> boolean
 ;; Decide por el nombre, no por el resultado: empty? y list? pueden dar #f.
@@ -460,6 +460,14 @@
        (exigir-argumentos nombre args 1) (lista-length (car args)))
       ((eqv? nombre 'list?)
        (exigir-argumentos nombre args 1) (lista-es? (car args)))
+      ((eqv? nombre 'vector?)
+       (exigir-argumentos nombre args 1) (vec-es? (car args)))
+      ((eqv? nombre 'ref-vector)
+       (exigir-argumentos nombre args 2) (vec-ref (car args) (cadr args)))
+      ((eqv? nombre 'set-vector)
+       (exigir-argumentos nombre args 3) (vec-set! (car args) (cadr args) (caddr args)))
+      ((eqv? nombre 'make-vector)
+       (exigir-argumentos nombre args 1) (vec-make (car args)))
       (else
        (eopl:error 'aplicar-primitiva-coleccion "~s no es una primitiva" nombre))
       )
