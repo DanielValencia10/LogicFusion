@@ -6,7 +6,7 @@
   '(
     (white-sp (whitespace) skip)
     (comment ("%" (arbno (not #\newline))) skip)
-    (identifier (letter (arbno (or letter digit "?" "_"))) symbol)
+    (identifier (letter (arbno (or letter digit "?" "_" "-"))) symbol)
     (number (digit (arbno digit)) number)
     (number ("-" digit (arbno digit)) number)
     (number (digit (arbno digit) "." digit (arbno digit)) number)
@@ -385,6 +385,59 @@
 ;; lista-es? : dice si un valor es una lista.
 (define lista-es?
   (lambda (lst) (list? lst)))
+
+;; ============================================================
+;; Primitivas de vectores
+;; ============================================================
+;; Un vector de LogicFusion es un envoltorio: un vector de Racket de UNA
+;; posición que guarda el vector real. Así append/insert/delete pueden
+;; cambiar el tamaño: se arma un vector nuevo y se guarda en esa posición,
+;; y todos los que tengan el envoltorio ven el cambio.
+
+;; vec-nuevo : Racket-vector -> vector de LogicFusion (envoltorio)
+(define vec-nuevo (lambda (datos) (vector datos)))
+
+;; vec-datos : vector de LogicFusion -> Racket-vector con los elementos
+(define vec-datos (lambda (v) (vector-ref v 0)))
+
+;; vec-es? : valor -> boolean
+;; Dice si un valor es un vector de LogicFusion.
+(define vec-es?
+  (lambda (v)
+    (vector? v)))
+
+;; vec-ref : vector x entero -> valor
+;; Devuelve el elemento en la posición pos (error si está fuera de rango).
+(define vec-ref
+  (lambda (v pos)
+    (let ((datos (vec-datos v)))
+      (cond
+        ((or (< pos 0) (>= pos (vector-length datos)))
+         (eopl:error 'ref-vector "Indice fuera de rango"))
+        (else (vector-ref datos pos))))))
+
+;; vec-set! : vector x entero x valor -> vector
+;; Cambia el elemento en pos por valor, modificando el vector original
+;; (error si pos está fuera de rango). Retorna el mismo vector.
+(define vec-set!
+  (lambda (v pos valor)
+    (let ((datos (vec-datos v)))
+      (cond
+        ((or (< pos 0) (>= pos (vector-length datos)))
+             (eopl:error 'set-vector "Indice fuera de rango"))
+         (else (vector-set! datos pos valor)
+               v)))))
+
+;; vec-make : entero -> vector
+;; Crea un vector de tamaño n con todas las posiciones en 0.
+;; TODO: llenar según el tipo declarado cuando esté el sistema de tipos.
+
+(define vec-make
+  (lambda (n)
+    (if (< n 0)
+        (eopl:error 'make-vector "El tamano no puede ser negativo")
+        (vec-nuevo (make-vector n 0)))))
+
 
 ;; aplicar-primitiva-coleccion : symbol x (listof valor) -> valor
 ;; Solo se llama cuando es-primitiva-coleccion? es verdadero.
