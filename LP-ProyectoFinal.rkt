@@ -1085,3 +1085,101 @@
     (display "  f(1)   (f no definida)        -> Variable no definida") (newline)
     )
   )
+
+;; ============================================================
+;; Ejemplos de listas y vectores
+;; ============================================================
+;; Cada ejemplo escribe un programa de LogicFusion como texto, lo pasa por
+;; scan&parse, lo evalúa y compara con el resultado esperado.
+;; Uso:  (ejemplos-colecciones)
+
+(define ejemplos-colecciones
+  (lambda ()
+    (display "--- Ejemplos de listas y vectores ---") (newline)
+
+    ;; listas
+    (probar-ejemplo "empty: la lista vacia"
+      (armar-programa-ejemplo "" "empty")
+      '())
+    (probar-ejemplo "literal de lista asignado a una variable"
+      (armar-programa-ejemplo "list<int> nums = [1, 2, 3];" "nums")
+      '(1 2 3))
+    (probar-ejemplo "empty? sobre lista vacia"
+      (armar-programa-ejemplo "" "empty?(empty)")
+      #t)
+    (probar-ejemplo "empty? sobre lista con elementos"
+      (armar-programa-ejemplo "" "empty?([1])")
+      #f)
+    (probar-ejemplo "head"
+      (armar-programa-ejemplo "" "head([10, 20, 30])")
+      10)
+    (probar-ejemplo "tail"
+      (armar-programa-ejemplo "" "tail([10, 20, 30])")
+      '(20 30))
+    (probar-ejemplo "make-list"
+      (armar-programa-ejemplo "" "make-list(1, [2, 3])")
+      '(1 2 3))
+    (probar-ejemplo "append"
+      (armar-programa-ejemplo "" "append([1, 2], [3, 4])")
+      '(1 2 3 4))
+    (probar-ejemplo "ref-list"
+      (armar-programa-ejemplo "" "ref-list([10, 20, 30], 1)")
+      20)
+    (probar-ejemplo "length"
+      (armar-programa-ejemplo "" "length([5, 6, 7])")
+      3)
+    (probar-ejemplo "list? sobre una lista"
+      (armar-programa-ejemplo "" "list?([1])")
+      #t)
+    (probar-ejemplo "list? sobre un numero"
+      (armar-programa-ejemplo "" "list?(42)")
+      #f)
+
+    ;; vectores
+    (probar-ejemplo "literal de vector (es un envoltorio)"
+      (armar-programa-ejemplo "" "#[10, 20, 30]")
+      (vec-nuevo (vector 10 20 30)))
+    (probar-ejemplo "vector? sobre un vector"
+      (armar-programa-ejemplo "" "vector?(#[1, 2])")
+      #t)
+    (probar-ejemplo "vector? sobre una lista"
+      (armar-programa-ejemplo "" "vector?([1, 2])")
+      #f)
+    (probar-ejemplo "make-vector"
+      (armar-programa-ejemplo "" "make-vector(3)")
+      (vec-nuevo (vector 0 0 0)))
+    (probar-ejemplo "ref-vector"
+      (armar-programa-ejemplo "" "ref-vector(#[10, 20, 30], 1)")
+      20)
+    (probar-ejemplo "set-vector"
+      (armar-programa-ejemplo "vector<int> v = #[1, 2, 3];"
+        "BLOCK { set-vector(v, 1, 50); ref-vector(v, 1); }")
+      50)
+    (probar-ejemplo "append-vector"
+      (armar-programa-ejemplo "vector<int> v = #[10, 20];"
+        "BLOCK { append-vector(v, 30); ref-vector(v, 2); }")
+      30)
+    (probar-ejemplo "delete-val-vector (ejemplo del enunciado)"
+      (armar-programa-ejemplo "vector<int> v = #[10, 20, 30, 40];"
+        "BLOCK { delete-val-vector(v, 1); ref-vector(v, 1); }")
+      30)
+    (probar-ejemplo "insert-val-vector (ejemplo del enunciado)"
+      (armar-programa-ejemplo "vector<int> v = #[10, 20, 30, 40];"
+        "BLOCK { insert-val-vector(v, 1, -5); ref-vector(v, 1); }")
+      -5)
+    (probar-ejemplo "dos variables comparten el mismo vector"
+      (armar-programa-ejemplo "vector<int> v = #[10, 20]; vector<int> w = v;"
+        "BLOCK { set-vector(v, 0, 99); ref-vector(w, 0); }")
+      99)
+
+    (newline)
+    (display "Casos que producen ERROR (escribalos dentro de un programa para probarlos):") (newline)
+    (display "  head(empty)                   -> head: La lista esta vacia") (newline)
+    (display "  tail(empty)                   -> tail: La lista esta vacia") (newline)
+    (display "  ref-list([1, 2], 5)           -> ref-list: Indice fuera de rango") (newline)
+    (display "  head([1], [2])                -> numero de argumentos incorrecto") (newline)
+    (display "  ref-vector(#[1, 2], 2)        -> ref-vector: Indice fuera de rango") (newline)
+    (display "  delete-val-vector(#[1], 9)    -> delete-val-vector: Indice fuera de rango") (newline)
+    (display "  make-vector(-2)               -> make-vector: El tamano no puede ser negativo") (newline)
+    )
+  )
