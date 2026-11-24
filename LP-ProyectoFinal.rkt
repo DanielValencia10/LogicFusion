@@ -321,7 +321,7 @@
 ;; Primitivas de listas
 ;; ============================================================
 (define primitivas-colecciones
-  '(empty? head tail make-list append ref-list length list? vector? make-vector ref-vector set-vector))
+  '(empty? head tail make-list append ref-list length list? vector? make-vector ref-vector set-vector append-vector delete-val-vector insert-val-vector))
 
 ;; es-primitiva-sistema? : symbol -> boolean
 ;; Decide por el nombre, no por el resultado: empty? y list? pueden dar #f.
@@ -335,8 +335,6 @@
     (if (not (= (length args) n))
         (eopl:error nombre "Espera ~s argumento(s) y recibio ~s" n (length args))
         'ok)))
-
-
 
 
 ;; empty
@@ -385,6 +383,27 @@
 ;; lista-es? : dice si un valor es una lista.
 (define lista-es?
   (lambda (lst) (list? lst)))
+
+;; ------------------------------------------------------------
+;; Auxiliares de listas 
+;; las usan vec-delete y vec-insert
+;; ------------------------------------------------------------
+
+;; lista-quitar : lista x entero -> lista
+;; Retorna una lista nueva sin el elemento de la posición pos.
+(define lista-quitar
+  (lambda (lst pos)
+    (cond
+      ((= pos 0) (cdr lst))
+      (else (cons (car lst) (lista-quitar (cdr lst) (- pos 1)))))))
+
+;; lista-insertar : lista x entero x valor -> lista
+;; Retorna una lista nueva con valor insertado en la posición pos.
+(define lista-insertar
+  (lambda (lst pos valor)
+    (cond
+      ((= pos 0) (cons valor lst))
+      (else (cons (car lst) (lista-insertar (cdr lst) (- pos 1) valor))))))
 
 ;; ============================================================
 ;; Primitivas de vectores
@@ -438,6 +457,40 @@
         (eopl:error 'make-vector "El tamano no puede ser negativo")
         (vec-nuevo (make-vector n 0)))))
 
+;; vec-append : vector x valor -> vector
+;; Agrega valor al final del vector, modificando el vector original.
+;; Retorna el mismo vector.
+;; TODO: validar que valor coincida con el tipo del vector.
+(define vec-append
+  (lambda (v valor)
+    (let ((nueva-lista (append (vector->list (vec-datos v)) (list valor))))
+      (vector-set! v 0 (list->vector nueva-lista))
+      v)))
+
+;; vec-delete : vector x entero -> vector
+;; Elimina el elemento de la posición pos, desplazando a la izquierda los
+;; siguientes (error si pos está fuera de rango). Retorna el mismo vector.
+(define vec-delete
+  (lambda (v pos)
+    (let ((datos (vec-datos v)))
+      (if (or (< pos 0) (>= pos (vector-length datos)))
+          (eopl:error 'delete-val-vector "Indice fuera de rango")
+          (begin
+            (vector-set! v 0 (list->vector (lista-quitar (vector->list datos) pos)))
+            v)))))
+
+;; vec-insert : vector x entero x valor -> vector
+;; Inserta valor en la posición pos, desplazando a la derecha los siguientes
+;; (error si pos está fuera de rango). Retorna el mismo vector.
+;; TODO: validar que valor coincida con el tipo del vector.
+(define vec-insert
+  (lambda (v pos valor)
+    (let ((datos (vec-datos v)))
+      (if (or (< pos 0) (> pos (vector-length datos)))
+          (eopl:error 'insert-val-vector "Indice fuera de rango")
+          (begin
+            (vector-set! v 0 (list->vector (lista-insertar (vector->list datos) pos valor)))
+            v)))))
 
 ;; aplicar-primitiva-coleccion : symbol x (listof valor) -> valor
 ;; Solo se llama cuando es-primitiva-coleccion? es verdadero.
@@ -468,6 +521,12 @@
        (exigir-argumentos nombre args 3) (vec-set! (car args) (cadr args) (caddr args)))
       ((eqv? nombre 'make-vector)
        (exigir-argumentos nombre args 1) (vec-make (car args)))
+      ((eqv? nombre 'append-vector)
+       (exigir-argumentos nombre args 2) (vec-append (car args) (cadr args)))
+      ((eqv? nombre 'delete-val-vector)
+       (exigir-argumentos nombre args 2) (vec-delete (car args) (cadr args)))
+      ((eqv? nombre 'insert-val-vector)
+       (exigir-argumentos nombre args 3) (vec-insert (car args) (cadr args) (caddr args)))
       (else
        (eopl:error 'aplicar-primitiva-coleccion "~s no es una primitiva" nombre))
       )
