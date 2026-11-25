@@ -145,9 +145,12 @@ esperado y el obtenido.
 
 ```text
 LogicFusion/
+
+├──.gitignore
 ├── LP-ProyectoFinal.rkt
-├── README.md
-└── .gitignore
+├── LP-ProyectoFinal.rkt
+└── README.md
+
 ```
 
 ## Enlace al repositorio
