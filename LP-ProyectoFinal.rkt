@@ -536,6 +536,50 @@
 ;; ============================================================
 ;; Ambiente
 ;; ============================================================
+;; ============================================================
+;; TAD celda: lo que guarda cada posición del vector del ambiente
+;; ============================================================
+;; Una celda guarda el valor de una variable, si es constante y su tipo.
+;; El tipo es un <tipo> del árbol, o el símbolo 'proc para los proc-decl
+;; (la gramática no les asigna tipo).
+
+;; cualquier-valor? : acepta cualquier valor expresado.
+(define cualquier-valor? (lambda (v) #t))
+
+;; tipo-de-celda? : un <tipo> del árbol o el símbolo 'proc.
+(define tipo-de-celda?
+  (lambda (t) (or (tipo? t) (eqv? t 'proc))))
+
+(define-datatype celda celda?
+  (una-celda (valor cualquier-valor?)
+             (constante? boolean?)
+             (tipo tipo-de-celda?)))
+
+;; Constructor
+;; crear-celda : valor x boolean x tipo -> celda
+(define crear-celda
+  (lambda (valor constante? tipo)
+    (una-celda valor constante? tipo)))
+
+;; Observadores (nadie usa car/cdr sobre una celda)
+;; celda-valor : celda -> valor
+(define celda-valor
+  (lambda (c)
+    (cases celda c
+      (una-celda (valor constante? tipo) valor))))
+
+;; celda-constante? : celda -> boolean
+(define celda-constante?
+  (lambda (c)
+    (cases celda c
+      (una-celda (valor constante? tipo) constante?))))
+
+;; celda-tipo : celda -> tipo
+(define celda-tipo
+  (lambda (c)
+    (cases celda c
+      (una-celda (valor constante? tipo) tipo))))
+
 ;; Datatype para representar una referencia a una celda en memoria
 (define-datatype referencia referencia?
   (una-ref (pos integer?)
@@ -545,7 +589,7 @@
 (define leer-ref
   (lambda (ref)
     (cases referencia ref
-      (una-ref (pos vec) (car (vector-ref vec pos)))
+      (una-ref (pos vec) (celda-valor (vector-ref vec pos)))
       )
     )
   )
@@ -556,9 +600,9 @@
     (cases referencia ref
       (una-ref (pos vec)
         (let ((celda (vector-ref vec pos)))
-          (if (cdr celda)
+          (if (celda-constante? celda)
               (eopl:error 'cambiar-ref! "No se puede modificar una constante")
-              (begin (vector-set! vec pos (cons nuevo-val #f)) nuevo-val))
+              (begin (vector-set! vec pos (crear-celda nuevo-val #f (celda-tipo celda))) nuevo-val))
           )
         )
       )
@@ -580,7 +624,7 @@
     )
   )
 
-;; Extiende un ambiente con nuevos símbolos y sus celdas (valor . es-constante?)
+;; Extiende un ambiente con nuevos símbolos y sus celdas (TAD celda: valor, constante?, tipo)
 (define extender-ambiente
   (lambda (syms celdas env)
     (ambiente-extendido-reg syms (list->vector celdas) env)
@@ -716,14 +760,14 @@
           (var-decl (tipo id exp)
             (let ((val (evaluar-expresion exp env)))
               (evaluar-declaraciones (cdr decls)
-                (extender-ambiente (list id) (list (cons val #f)) env)
+                (extender-ambiente (list id) (list (crear-celda val #f tipo)) env)
                 )
               )
             )
           (const-decl (tipo id exp)
              (let ((val (evaluar-expresion exp env)))
               (evaluar-declaraciones (cdr decls)
-                (extender-ambiente (list id) (list (cons val #t)) env)
+                (extender-ambiente (list id) (list (crear-celda val #t tipo)) env)
                 )
               )
             )
@@ -731,7 +775,7 @@
             ;; El nombre se agrega al ambiente ANTES de evaluar el lambda, así la
             ;; clausura captura un ambiente que ya contiene al procedimiento (recursión).
             (let* ((nuevo-env (extender-ambiente (list id)
-                                                 (list (cons 'proc-pendiente #t))
+                                                 (list (crear-celda 'proc-pendiente #t 'proc))
                                                  env))
                    (val (evaluar-expresion exp nuevo-env)))
               (if (procVal? val)
@@ -781,7 +825,7 @@
 ;; ============================================================
 ;; Un procedimiento es una clausura: tipos y nombres de los parámetros,
 ;; la expresión del return y el ambiente donde se creó el lambda.
-;; Los valores denotados siguen siendo referencias a celdas (valor . es-constante?).
+;; Los valores denotados siguen siendo referencias a celdas (TAD celda: valor, constante?, tipo).
 (define-datatype procVal procVal?
   (cerradura (tipos (list-of tipo?))
              (params (list-of symbol?))
@@ -794,7 +838,7 @@
 (define inicializar-ref!
   (lambda (ref val)
     (cases referencia ref
-      (una-ref (pos vec) (vector-set! vec pos (cons val #t)))
+      (una-ref (pos vec) (vector-set! vec pos (crear-celda val #t 'proc)))
       )
     )
   )
@@ -823,7 +867,7 @@
                 (evaluar-expresion
                   cuerpo-proc
                   (extender-ambiente params
-                                     (map (lambda (arg) (cons arg #f)) args)
+                                     (map (lambda (arg t) (crear-celda arg #f t)) args tipos)
                                      env-clausura))
                 )
             )
