@@ -312,16 +312,36 @@
       (empty-lit () '())
       (lista-lit (exp) (map (lambda (e) (evaluar-expresion e env)) exp))
       (vector-lit (exps) (vec-nuevo (list->vector (map (lambda (e) (evaluar-expresion e env)) exps))))
-      (dict-lit (pares) (eopl:error 'aplicar-operando "Diccionarios pendientes Sara"))
-      )
-    )
-   )
+      (dict-lit (pares)
+        (let ((lista-pares
+               (map (lambda (p)
+                      (cases par-dict p
+                        (un-par (k v)
+                          (cons (evaluar-expresion k env)
+                                (evaluar-expresion v env)))))
+                    pares)))
+          (un-dict 'any 'any (vector lista-pares)))))))
+
 
 ;; ============================================================
 ;; Primitivas de listas
 ;; ============================================================
 (define primitivas-colecciones
-  '(empty? head tail make-list append ref-list length list? vector? make-vector ref-vector set-vector append-vector delete-val-vector insert-val-vector))
+  '(empty? head tail make-list append ref-list length list? vector? make-vector ref-vector set-vector append-vector delete-val-vector insert-val-vector
+           longitud concatenar
+           create-dict make-dict dict? ref-dict set-dict append-dict keys keys-dict values values-dict))
+
+(define str-longitud
+  (lambda (s)
+    (if (string? s)
+        (string-length s)
+        (eopl:error 'longitud "Se esperaba una cadena y se recibio: ~s" s))))
+
+(define str-concatenar
+  (lambda (s1 s2)
+    (if (and (string? s1) (string? s2))
+        (string-append s1 s2)
+        (eopl:error 'concatenar "Ambos argumentos deben ser cadenas"))))
 
 ;; es-primitiva-sistema? : symbol -> boolean
 ;; Decide por el nombre, no por el resultado: empty? y list? pueden dar #f.
@@ -404,6 +424,169 @@
     (cond
       ((= pos 0) (cons valor lst))
       (else (cons (car lst) (lista-insertar (cdr lst) (- pos 1) valor))))))
+
+;; ============================================================
+;; Primitivas de diccionarios
+;; ============================================================
+;; El diccionario guarda:
+;; - tipo-clave: un <tipo> del árbol o 'any (cuando aún no se liga a una variable)
+;; - tipo-valor: un <tipo> del árbol o 'any
+;; - datos: vector de 1 posición que almacena una lista de pares (clave . valor)
+
+(define-datatype diccionario diccionario?
+  (un-dict
+   (tipo-clave (lambda (t) (or (tipo? t) (eqv? t 'any))))
+   (tipo-valor (lambda (t) (or (tipo? t) (eqv? t 'any))))
+   (datos vector?)))
+
+;; Verifica si un valor en tiempo de ejecución cumple con el <tipo> declarado.
+;; Si el tipo es void o 'any, acepta cualquier valor.
+
+(define cumple-tipo?
+  (lambda (val t)
+    (cond
+      ((eqv? t 'any) #t)
+      (else
+       (cases tipo t
+         (tipo-int () (integer? val))
+         (tipo-float () (number? val))
+         (tipo-string () (string? val))
+         (tipo-bool () (boolean? val))
+         (tipo-void () #t)
+         (tipo-list (t-elem)
+           (and (list? val)
+                (let loop ((ls val))
+                  (or (null? ls)
+                      (and (cumple-tipo? (car ls) t-elem)
+                           (loop (cdr ls)))))))
+         (tipo-vector (t-elem)
+           (and (vec-es? val)
+                (let ((v (vec-datos val)))
+                  (let loop ((i 0))
+                    (or (= i (vector-length v))
+                        (and (cumple-tipo? (vector-ref v i) t-elem)
+                             (loop (+ i 1))))))))
+         (tipo-dict (tk tv)
+           (and (diccionario? val)
+                (cases diccionario val
+                  (un-dict (k-t v-t datos)
+                    (and (or (eqv? k-t 'any) (equal? k-t tk))
+                         (or (eqv? v-t 'any) (equal? v-t tv))))))))))))
+
+;; create-dict : () -> diccionario vacío
+(define dict-create
+  (lambda ()
+    (un-dict 'any 'any (vector '()))))
+
+;; dict? : valor -> boolean
+(define dict-es?
+  (lambda (d)
+    (diccionario? d)))
+
+
+
+;; ref-dict : diccionario x clave -> valor
+;; Retorna el valor asociado a clave. Si no existe, lanza error.
+(define dict-ref
+  (lambda (d clave)
+    (if (not (diccionario? d))
+        (eopl:error 'ref-dict "El primer argumento debe ser un diccionario")
+        (cases diccionario d
+          (un-dict (tk tv datos)
+            (let ((par (assoc clave (vector-ref datos 0))))
+              (if par
+                  (cdr par)
+                  (eopl:error 'ref-dict "Clave no encontrada en el diccionario: ~s" clave))))))))
+
+
+;; set-dict : diccionario x clave x valor -> diccionario
+;; Inserta un nuevo par si la clave no existe o reemplaza el valor si ya está presente.
+;; Respeta los tipos declarados T y U.
+(define dict-set!
+  (lambda (d clave valor)
+    (if (not (diccionario? d))
+        (eopl:error 'set-dict "El primer argumento debe ser un diccionario")
+        (cases diccionario d
+          (un-dict (tk tv datos)
+            (cond
+              ((not (cumple-tipo? clave tk))
+               (eopl:error 'set-dict "La clave ~s no coincide con el tipo declarado" clave))
+              ((not (cumple-tipo? valor tv))
+               (eopl:error 'set-dict "El valor ~s no coincide con el tipo declarado" valor))
+              (else
+               (let ((pares (vector-ref datos 0)))
+                 (if (assoc clave pares)
+                     (vector-set! datos 0
+                       (map (lambda (p) (if (equal? (car p) clave) (cons clave valor) p))
+                            pares))
+                     (vector-set! datos 0
+                       (append pares (list (cons clave valor))))))
+               d)))))))
+
+;; append-dict : diccionario x clave x valor -> diccionario
+;; Agrega una nueva pareja clave-valor validando que la clave no exista y respetando tipos.
+(define dict-append!
+  (lambda (d clave valor)
+    (if (not (diccionario? d))
+        (eopl:error 'append-dict "El primer argumento debe ser un diccionario")
+        (cases diccionario d
+          (un-dict (tk tv datos)
+            (cond
+              ((not (cumple-tipo? clave tk))
+               (eopl:error 'append-dict "La clave ~s no coincide con el tipo declarado" clave))
+              ((not (cumple-tipo? valor tv))
+               (eopl:error 'append-dict "El valor ~s no coincide con el tipo declarado" valor))
+              ((assoc clave (vector-ref datos 0))
+               (eopl:error 'append-dict "La clave ~s ya existe en el diccionario" clave))
+              (else
+               (vector-set! datos 0
+                 (append (vector-ref datos 0) (list (cons clave valor))))
+               d)))))))
+
+;; keys / keys-dict : diccionario -> lista de claves
+(define dict-keys
+  (lambda (d)
+    (if (not (diccionario? d))
+        (eopl:error 'keys "El argumento debe ser un diccionario")
+        (cases diccionario d
+          (un-dict (tk tv datos)
+            (map car (vector-ref datos 0)))))))
+
+;; values / values-dict : diccionario -> lista de valores (en el orden de las claves)
+(define dict-values
+  (lambda (d)
+    (if (not (diccionario? d))
+        (eopl:error 'values "El argumento debe ser un diccionario")
+        (cases diccionario d
+          (un-dict (tk tv datos)
+            (map cdr (vector-ref datos 0)))))))
+
+;; Enlaza los tipos declarados T y U al diccionario al momento de declarar la variable
+;; y verifica que todos los pares iniciales cumplan con dichos tipos y no tengan claves duplicadas.
+(define preparar-valor-declaracion
+  (lambda (val t)
+    (cases tipo t
+      (tipo-dict (tk tv)
+        (if (not (diccionario? val))
+            (eopl:error 'declaracion "Se esperaba un diccionario para el tipo dict<T,U>")
+            (cases diccionario val
+              (un-dict (k-old v-old datos)
+                (let ((pares (vector-ref datos 0)))
+                  (let validar ((rest pares) (vistas '()))
+                    (if (null? rest)
+                        (un-dict tk tv datos)
+                        (let ((k (caar rest))
+                              (v (cdar rest)))
+                          (cond
+                            ((member k vistas)
+                             (eopl:error 'declaracion "Clave duplicada en literal de diccionario: ~s" k))
+                            ((not (cumple-tipo? k tk))
+                             (eopl:error 'declaracion "La clave ~s no coincide con el tipo declarado" k))
+                            ((not (cumple-tipo? v tv))
+                             (eopl:error 'declaracion "El valor ~s no coincide con el tipo declarado" v))
+                            (else
+                             (validar (cdr rest) (cons k vistas))))))))))))
+      (else val))))
 
 ;; ============================================================
 ;; Primitivas de vectores
@@ -527,6 +710,24 @@
        (exigir-argumentos nombre args 2) (vec-delete (car args) (cadr args)))
       ((eqv? nombre 'insert-val-vector)
        (exigir-argumentos nombre args 3) (vec-insert (car args) (cadr args) (caddr args)))
+      ((eqv? nombre 'longitud)
+       (exigir-argumentos nombre args 1) (str-longitud (car args)))
+      ((eqv? nombre 'concatenar)
+       (exigir-argumentos nombre args 2) (str-concatenar (car args) (cadr args)))
+      ((or (eqv? nombre 'create-dict) (eqv? nombre 'make-dict))
+       (exigir-argumentos nombre args 0) (dict-create))
+      ((eqv? nombre 'dict?)
+       (exigir-argumentos nombre args 1) (dict-es? (car args)))
+      ((eqv? nombre 'ref-dict)
+       (exigir-argumentos nombre args 2) (dict-ref (car args) (cadr args)))
+      ((eqv? nombre 'set-dict)
+       (exigir-argumentos nombre args 3) (dict-set! (car args) (cadr args) (caddr args)))
+      ((eqv? nombre 'append-dict)
+       (exigir-argumentos nombre args 3) (dict-append! (car args) (cadr args) (caddr args)))
+      ((or (eqv? nombre 'keys) (eqv? nombre 'keys-dict))
+       (exigir-argumentos nombre args 1) (dict-keys (car args)))
+      ((or (eqv? nombre 'values) (eqv? nombre 'values-dict))
+       (exigir-argumentos nombre args 1) (dict-values (car args)))
       (else
        (eopl:error 'aplicar-primitiva-coleccion "~s no es una primitiva" nombre))
       )
@@ -758,14 +959,14 @@
         env
         (cases declaracion (car decls)
           (var-decl (tipo id exp)
-            (let ((val (evaluar-expresion exp env)))
+            (let ((val (preparar-valor-declaracion (evaluar-expresion exp env) tipo)))
               (evaluar-declaraciones (cdr decls)
                 (extender-ambiente (list id) (list (crear-celda val #f tipo)) env)
                 )
               )
             )
           (const-decl (tipo id exp)
-             (let ((val (evaluar-expresion exp env)))
+             (let ((val (preparar-valor-declaracion (evaluar-expresion exp env) tipo)))
               (evaluar-declaraciones (cdr decls)
                 (extender-ambiente (list id) (list (crear-celda val #t tipo)) env)
                 )
@@ -955,16 +1156,31 @@
   )
 
 ;; print: muestra los argumentos separados por espacio y un salto de línea.
-;; Los booleanos se muestran como True / False. Retorna 'void.
+;; Los booleanos se muestran como True / False. Retorna 'void. Y los diccionarios como {k: v, ...}.
+
 (define imprimir-valor
   (lambda (v)
     (cond
       ((boolean? v) (display (if v "True" "False")))
       ((procVal? v) (display "<procedimiento>"))
-      (else (display v))
-      )
-    )
-  )
+      ((diccionario? v)
+       (cases diccionario v
+         (un-dict (tk tv datos)
+           (display "{")
+           (let loop ((ps (vector-ref datos 0)))
+             (cond
+               ((null? ps) (display "}"))
+               (else
+                (if (string? (caar ps))
+                    (begin (display "\"") (display (caar ps)) (display "\""))
+                    (imprimir-valor (caar ps)))
+                (display ": ")
+                (if (string? (cdar ps))
+                    (begin (display "\"") (display (cdar ps)) (display "\""))
+                    (imprimir-valor (cdar ps)))
+                (if (not (null? (cdr ps))) (display ", ") 'ok)
+                (loop (cdr ps))))))))
+      (else (display v)))))
 
 (define evaluar-print
   (lambda (args env)
@@ -1227,3 +1443,112 @@
     (display "  make-vector(-2)               -> make-vector: El tamano no puede ser negativo") (newline)
     )
   )
+
+;; ============================================================
+;; Ejemplos de diccionarios
+;; ============================================================
+
+;; Cada ejemplo escribe un programa de LogicFusion como texto, lo pasa por
+;; scan&parse, lo evalúa y compara con el resultado esperado.
+;; Incluye pruebas de creación (create-dict y literales), consulta (ref-dict,
+;; keys, values), verificación de tipo (dict?), modificación (set-dict y
+;; append-dict) y manejo de valores polimórficos con tipo void.
+;; Uso:  (ejemplos-diccionarios)
+
+(define ejemplos-cadenas-y-diccionarios
+  (lambda ()
+    (display "--- Ejemplos de cadenas ---") (newline)
+
+    ;; longitud
+    (probar-ejemplo "longitud: cadena con texto"
+      (armar-programa-ejemplo "" "longitud(\"LogicFusion\")")
+      11)
+    (probar-ejemplo "longitud: cadena vacia retorna 0"
+      (armar-programa-ejemplo "" "longitud(\"\")")
+      0)
+
+    ;; concatenar
+    (probar-ejemplo "concatenar: une dos cadenas"
+      (armar-programa-ejemplo "" "concatenar(\"Hola \", \"Mundo\")")
+      "Hola Mundo")
+    (probar-ejemplo "concatenar + longitud anidados"
+      (armar-programa-ejemplo "string a = \"Uni\"; string b = \"valle\";"
+        "longitud(concatenar(a, b))")
+      8)
+
+    (newline)
+    (display "--- Ejemplos de diccionarios ---") (newline)
+
+    ;; creación y predicado dict?
+    (probar-ejemplo "create-dict: crea diccionario vacio y dict? retorna #t"
+      (armar-programa-ejemplo "dict<string, int> d = create-dict();"
+        "dict?(d)")
+      #t)
+    (probar-ejemplo "make-dict (alias): crea diccionario vacio"
+      (armar-programa-ejemplo "dict<string, int> d = make-dict();"
+        "keys(d)")
+      '())
+    (probar-ejemplo "dict? sobre lista o entero retorna #f"
+      (armar-programa-ejemplo "" "dict?([1, 2, 3])")
+      #f)
+
+    ;; literales y ref-dict
+    (probar-ejemplo "literal de diccionario y consulta con ref-dict"
+      (armar-programa-ejemplo "dict<string, int> edades = {\"Juan\": 25, \"Ana\": 30};"
+        "ref-dict(edades, \"Juan\") + ref-dict(edades, \"Ana\")")
+      55)
+
+    ;; set-dict (inserta si no existe y actualiza si ya existe)
+    (probar-ejemplo "set-dict: inserta clave nueva y actualiza existente"
+      (armar-programa-ejemplo "dict<string, int> d = create-dict();"
+        "BLOCK { set-dict(d, \"edad\", 34); set-dict(d, \"edad\", 35); ref-dict(d, \"edad\"); }")
+      35)
+
+    ;; append-dict
+    (probar-ejemplo "append-dict: agrega nueva pareja clave-valor"
+      (armar-programa-ejemplo "dict<string, int> edades = {\"Juan\": 25};"
+        "BLOCK { append-dict(edades, \"Ana\", 30); ref-dict(edades, \"Ana\"); }")
+      30)
+
+    ;; keys y values (y alias keys-dict / values-dict)
+    (probar-ejemplo "keys: retorna lista de claves"
+      (armar-programa-ejemplo "dict<string, int> edades = {\"Juan\": 25, \"Ana\": 30};"
+        "keys(edades)")
+      '("Juan" "Ana"))
+    (probar-ejemplo "values: retorna lista de valores en orden de claves"
+      (armar-programa-ejemplo "dict<string, int> edades = {\"Juan\": 25, \"Ana\": 30};"
+        "values(edades)")
+      '(25 30))
+    (probar-ejemplo "keys-dict y values-dict (alias del enunciado)"
+      (armar-programa-ejemplo "dict<int, string> codigos = {10: \"A\", 20: \"B\"};"
+        "values-dict(codigos)")
+      '("A" "B"))
+
+    ;; mutabilidad compartida entre variables
+    (probar-ejemplo "mutabilidad: dos variables apuntan al mismo diccionario"
+      (armar-programa-ejemplo "dict<string, int> d1 = {\"x\": 10}; dict<string, int> d2 = d1;"
+        "BLOCK { set-dict(d1, \"x\", 99); ref-dict(d2, \"x\"); }")
+      99)
+
+    ;; diccionario con tipo void (acepta valores heterogéneos)
+    (probar-ejemplo "dict<string, void> acepta valores de distintos tipos"
+      (armar-programa-ejemplo "dict<string, void> datos = {\"Nombre\": \"Juan\", \"Edad\": 40, \"Casado\": True};"
+        "BLOCK { set-dict(datos, \"Edad\", \"Cuarenta\"); ref-dict(datos, \"Edad\"); }")
+      "Cuarenta")
+
+    ;; integración de cadenas + diccionarios
+    (probar-ejemplo "integracion: concatenar cadenas extraidas con ref-dict"
+      (armar-programa-ejemplo "dict<string, string> persona = {\"nombre\": \"Sara\", \"apellido\": \"Gomez\"};"
+        "concatenar(ref-dict(persona, \"nombre\"), concatenar(\" \", ref-dict(persona, \"apellido\")))")
+      "Sara Gomez")
+
+    (newline)
+    (display "Casos que producen ERROR (ejecutelos manualmente para verificar):") (newline)
+    (display "  (probar (armar-programa-ejemplo \"\" \"longitud(123)\"))") (newline)
+    (display "  (probar (armar-programa-ejemplo \"\" \"concatenar(\\\"hola\\\", 5)\"))") (newline)
+    (display "  (probar (armar-programa-ejemplo \"dict<string, int> d = {\\\"a\\\": 1};\" \"ref-dict(d, \\\"z\\\")\"))") (newline)
+    (display "  (probar (armar-programa-ejemplo \"dict<string, int> d = {\\\"a\\\": 1};\" \"set-dict(d, \\\"a\\\", \\\"mal\\\")\"))") (newline)
+    (display "  (probar (armar-programa-ejemplo \"dict<string, int> d = {\\\"a\\\": 1};\" \"set-dict(d, 99, 2)\"))") (newline)
+    (display "  (probar (armar-programa-ejemplo \"dict<string, int> d = {\\\"a\\\": 1};\" \"append-dict(d, \\\"a\\\", 2)\"))") (newline)
+    (display "  (probar (armar-programa-ejemplo \"dict<string, int> d = {\\\"a\\\": \\\"texto\\\"};\" \"d\"))") (newline)
+    ))
