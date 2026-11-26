@@ -57,6 +57,7 @@
     (tipo ("list" "<" tipo ">") tipo-list)
     (tipo ("vector" "<" tipo ">") tipo-vector)
     (tipo ("dict" "<" tipo "," tipo ">") tipo-dict)
+    (tipo ("sat") tipo-sat)
 
     ;; =========================================================
     ;; EXPRESIÓN: Cadena de operandos unidos por primitivas
@@ -115,6 +116,12 @@
     ;<operando> ::= <locales>
     ;               locales-exp (loc)
     (operando (locales) locales-exp)
+
+    ;<operando> ::= FNC <entero> ( <clausula-sat> { and <clausula-sat> }* )
+    (operando ("FNC" number "(" (separated-list clausula-sat "and") ")") fnc-lit)
+
+    ;<clausula-sat> ::= ( <entero> { or <entero> }* )
+    (clausula-sat ("(" (separated-list number "or") ")") una-clausula)
 
     ;; =========================================================
     ;; PRIMITIVA BINARIA: Operadores
@@ -280,9 +287,10 @@
       (tipo-void () "void")
       (tipo-list (tipo-elem) (string-append "list<" (aplicar-tipo tipo-elem) ">"))
       (tipo-vector (tipo-elem) (string-append "vector<" (aplicar-tipo tipo-elem) ">"))
-      (tipo-dict (tipo-clave tipo-valor) (string-append "dict<" (aplicar-tipo tipo-clave) "," (aplicar-tipo tipo-valor) ">")))
+      (tipo-dict (tipo-clave tipo-valor) (string-append "dict<" (aplicar-tipo tipo-clave) "," (aplicar-tipo tipo-valor) ">"))
+      (tipo-sat () "sat")))
     )
-   )
+   
       
  (define aplicar-operando
   (lambda (o env)
@@ -320,7 +328,14 @@
                           (cons (evaluar-expresion k env)
                                 (evaluar-expresion v env)))))
                     pares)))
-          (un-dict 'any 'any (vector lista-pares)))))))
+          (un-dict 'any 'any (vector lista-pares))))
+      (fnc-lit (num-vars clausulas)
+               (let ((lista-cls
+                      (map(lambda (c)
+                            (cases clausula-sat c
+                              (una-clausula(lits) lits)))
+                          clausulas)))
+               (construir-instancia-sat num-vars lista-cls))))))
 
 
 ;; ============================================================
@@ -329,7 +344,8 @@
 (define primitivas-colecciones
   '(empty? head tail make-list append ref-list length list? vector? make-vector ref-vector set-vector append-vector delete-val-vector insert-val-vector
            longitud concatenar
-           create-dict make-dict dict? ref-dict set-dict append-dict keys keys-dict values values-dict))
+           create-dict make-dict dict? ref-dict set-dict append-dict keys keys-dict values values-dict
+           solve))
 
 (define str-longitud
   (lambda (s)
@@ -471,7 +487,9 @@
                 (cases diccionario val
                   (un-dict (k-t v-t datos)
                     (and (or (eqv? k-t 'any) (equal? k-t tk))
-                         (or (eqv? v-t 'any) (equal? v-t tv))))))))))))
+                         (or (eqv? v-t 'any) (equal? v-t tv)))))))
+         (tipo-sat () (instancia-sat? val)))))))
+
 
 ;; create-dict : () -> diccionario vacío
 (define dict-create
@@ -561,8 +579,12 @@
           (un-dict (tk tv datos)
             (map cdr (vector-ref datos 0)))))))
 
-;; Enlaza los tipos declarados T y U al diccionario al momento de declarar la variable
-;; y verifica que todos los pares iniciales cumplan con dichos tipos y no tengan claves duplicadas.
+;; preparar-valor-declaracion : valor x tipo -> valor
+;; Valida y enlaza los tipos declarados al momento de crear una variable o constante:
+;; - Para dict<T,U>: verifica que sea un diccionario, enlaza los tipos T y U al TAD
+;;   y comprueba que no haya claves duplicadas ni elementos incompatibles.
+;; - Para sat: verifica que el valor asignado corresponda a una instancia SAT válida.
+;; - Para los demás tipos: retorna el valor evaluado sin modificaciones.
 (define preparar-valor-declaracion
   (lambda (val t)
     (cases tipo t
@@ -586,7 +608,119 @@
                              (eopl:error 'declaracion "El valor ~s no coincide con el tipo declarado" v))
                             (else
                              (validar (cdr rest) (cons k vistas))))))))))))
+      (tipo-sat ()
+        (if (instancia-sat? val)
+            val
+            (eopl:error 'declaracion "Se esperaba una instancia SAT para el tipo sat")))
+                
       (else val))))
+
+
+;; ============================================================
+;; Primitivas de SAT 
+;; ============================================================
+
+;; Una instancia SAT representa una fórmula booleana en Forma Normal Conjuntiva
+;; (FNC), compuesta por una conjunción de cláusulas donde cada cláusula es una
+;; disyunción de literales codificados con enteros:
+;; - Un entero positivo i (1 <= i <= n) representa la variable x_i.
+;; - Un entero negativo -i representa su negación (~x_i).
+
+;; TAD instancia-sat: almacena el número de variables booleanas (num-vars)
+;; y la lista de cláusulas (cada cláusula es una lista de enteros).
+
+(define-datatype instancia-sat instancia-sat?
+  (una-instancia-sat
+   (num-vars integer?)
+   (clausulas (list-of (list-of integer?)))))
+
+;; construir-instancia-sat : entero x (listof (listof entero)) -> instancia-sat
+;; Valida las restricciones sintácticas y semánticas antes de construir el TAD:
+;; 1. n debe ser un entero positivo (> 0).
+;; 2. La fórmula debe contener al menos una cláusula y cada cláusula >= 1 literal.
+;; 3. Cada literal debe ser un entero distinto de 0 con valor absoluto entre 1 y n.
+
+(define construir-instancia-sat
+  (lambda (n lista-clausulas)
+    (cond
+      ((not (and (integer? n) (> n 0)))
+       (eopl:error 'FNC "El numero de variables debe ser un entero positivo: ~s" n))
+      ((null? lista-clausulas)
+       (eopl:error 'FNC "La formula FNC debe tener al menos una clausula"))
+      (else
+       (for-each
+        (lambda (cl)
+          (if (null? cl)
+              (eopl:error 'FNC "Cada clausula debe contener al menos un literal")
+              (for-each
+               (lambda (lit)
+                 (if (not (and (integer? lit) (not (= lit 0)) (<= (abs lit) n)))
+                     (eopl:error 'FNC "Literal ~s fuera de rango para ~s variables" lit n)
+                     'ok))
+               cl)))
+        lista-clausulas)
+       (una-instancia-sat n lista-clausulas)))))
+
+;; literal-verdadero? : entero x (listof boolean) -> boolean
+;; Evalúa un literal respecto a una asignación booleana (donde el índice i-1
+;; corresponde a la variable i): si lit > 0 retorna su valor, si lit < 0 lo niega.
+
+(define literal-verdadero?
+  (lambda (lit asignacion)
+    (let ((val (list-ref asignacion (- (abs lit) 1))))
+      (if (> lit 0) val (not val)))))
+
+;; clausula-verdadera? : (listof entero) x (listof boolean) -> boolean
+;; Disyunción (OR): retorna #t si al menos un literal de la cláusula es verdadero.
+
+(define clausula-verdadera?
+  (lambda (clausula asignacion)
+    (cond
+      ((null? clausula) #f)
+      ((literal-verdadero? (car clausula) asignacion) #t)
+      (else (clausula-verdadera? (cdr clausula) asignacion)))))
+
+
+;; formula-verdadera? : (listof (listof entero)) x (listof boolean) -> boolean
+;; Conjunción (AND): retorna #t únicamente si todas las cláusulas son verdaderas.
+
+(define formula-verdadera?
+  (lambda (clausulas asignacion)
+    (cond
+      ((null? clausulas) #t)
+      ((not (clausula-verdadera? (car clausulas) asignacion)) #f)
+      (else (formula-verdadera? (cdr clausulas) asignacion)))))
+
+;; buscar-solucion-sat : entero x (listof boolean) x (listof (listof entero)) -> (listof boolean) | #f
+;; Realiza búsqueda exhaustiva sobre las 2^n posibles asignaciones booleanas
+;; mediante backtracking, deteniéndose tan pronto encuentra la primera que
+;; satisface toda la fórmula (retorna #f si ninguna la satisface).
+
+(define buscar-solucion-sat
+  (lambda (n-restantes asignacion-acum clausulas)
+    (if (= n-restantes 0)
+        (if (formula-verdadera? clausulas asignacion-acum)
+            asignacion-acum
+            #f)
+        (or (buscar-solucion-sat (- n-restantes 1) (append asignacion-acum (list #f)) clausulas)
+            (buscar-solucion-sat (- n-restantes 1) (append asignacion-acum (list #t)) clausulas)))))
+
+;; sat-solve : instancia-sat -> lista
+;; Primitiva solve(inst): verifica que el argumento sea una instancia SAT válida
+;; y ejecuta la búsqueda exhaustiva. Retorna:
+;; - (satisfactible (True/False ...)) si existe una asignación que cumple la FNC.
+;; - (insatisfactible ()) si ninguna de las 2^n asignaciones satisface la fórmula.
+
+(define sat-solve
+  (lambda (inst)
+    (if (not (instancia-sat? inst))
+        (eopl:error 'solve "El argumento debe ser una instancia SAT")
+        (cases instancia-sat inst
+          (una-instancia-sat (num-vars clausulas)
+            (let ((sol (buscar-solucion-sat num-vars '() clausulas)))
+              (if sol
+                  (list 'satisfactible (map (lambda (b) (if b 'True 'False)) sol))
+                  (list 'insatisfactible '()))))))))
 
 ;; ============================================================
 ;; Primitivas de vectores
@@ -724,6 +858,8 @@
        (exigir-argumentos nombre args 3) (dict-set! (car args) (cadr args) (caddr args)))
       ((eqv? nombre 'append-dict)
        (exigir-argumentos nombre args 3) (dict-append! (car args) (cadr args) (caddr args)))
+      ((eqv? nombre 'solve)
+       (exigir-argumentos nombre args 1) (sat-solve (car args)))
       ((or (eqv? nombre 'keys) (eqv? nombre 'keys-dict))
        (exigir-argumentos nombre args 1) (dict-keys (car args)))
       ((or (eqv? nombre 'values) (eqv? nombre 'values-dict))
@@ -1156,7 +1292,9 @@
   )
 
 ;; print: muestra los argumentos separados por espacio y un salto de línea.
-;; Los booleanos se muestran como True / False. Retorna 'void. Y los diccionarios como {k: v, ...}.
+;; Los booleanos se muestran como True / False, los diccionarios como {k: v, ...},
+;; los procedimientos como <procedimiento> y las instancias SAT como FNC n (...).
+;; Retorna 'void.
 
 (define imprimir-valor
   (lambda (v)
@@ -1180,6 +1318,10 @@
                     (imprimir-valor (cdar ps)))
                 (if (not (null? (cdr ps))) (display ", ") 'ok)
                 (loop (cdr ps))))))))
+      ((instancia-sat? v)
+       (cases instancia-sat v
+         (una-instancia-sat (n cls)
+           (display "FNC ") (display n) (display " ") (display cls))))
       (else (display v)))))
 
 (define evaluar-print
@@ -1551,4 +1693,38 @@
     (display "  (probar (armar-programa-ejemplo \"dict<string, int> d = {\\\"a\\\": 1};\" \"set-dict(d, 99, 2)\"))") (newline)
     (display "  (probar (armar-programa-ejemplo \"dict<string, int> d = {\\\"a\\\": 1};\" \"append-dict(d, \\\"a\\\", 2)\"))") (newline)
     (display "  (probar (armar-programa-ejemplo \"dict<string, int> d = {\\\"a\\\": \\\"texto\\\"};\" \"d\"))") (newline)
+    ))
+
+;; ============================================================
+;; Ejemplos de SAT (FNC y solve)
+;; ============================================================
+;; Uso:  (ejemplos-sat)
+
+(define ejemplos-sat
+  (lambda ()
+    (display "--- Ejemplos de SAT (FNC y solve) ---") (newline)
+
+    (probar-ejemplo "SAT satisfactible (ejemplo del enunciado)"
+      (armar-programa-ejemplo
+        "sat x = FNC 4 ((1 or 2 or 3 or 4) and (-2 or 3) and (-1 or -2 or -3) and (3 or 4) and (2));"
+        "solve(x)")
+      '(satisfactible (False True True False)))
+
+    (probar-ejemplo "SAT insatisfactible (ejemplo del enunciado)"
+      (armar-programa-ejemplo
+        "sat x = FNC 2 ((1 or 2) and (-1) and (-2));"
+        "solve(x)")
+      '(insatisfactible ()))
+
+    (probar-ejemplo "SAT pasado directamente sin variable intermedia"
+      (armar-programa-ejemplo ""
+        "solve(FNC 2 ((1 or 2) and (-1 or 2)))")
+      '(satisfactible (False True)))
+
+    (newline)
+    (display "Casos que producen ERROR (ejecutelos manualmente para verificar):") (newline)
+    (display "  (probar (armar-programa-ejemplo \"\" \"FNC 0 ((1))\"))") (newline)
+    (display "  (probar (armar-programa-ejemplo \"\" \"FNC 2 ((3 or 1))\"))") (newline)
+    (display "  (probar (armar-programa-ejemplo \"\" \"FNC 2 ((0 or 1))\"))") (newline)
+    (display "  (probar (armar-programa-ejemplo \"\" \"solve(123)\"))") (newline)
     ))
